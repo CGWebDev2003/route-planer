@@ -11,9 +11,24 @@
   height: 100%;
 }
 
-.overlay {
+.routeBar {
   position: absolute;
   top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 600;
+  padding: 10px 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.97);
+  color: #1d4ed8;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.overlay {
+  position: absolute;
+  top: 64px;
   left: 12px;
   z-index: 500;
   display: flex;
@@ -29,6 +44,17 @@
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   color: #111827;
+  font-size: 0.9rem;
+}
+
+
+.warning {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 251, 235, 0.96);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  color: #92400e;
   font-size: 0.9rem;
 }
 

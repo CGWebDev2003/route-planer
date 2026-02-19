@@ -22,6 +22,12 @@ type OsrmRouteResponse = {
     geometry: {
       coordinates: [number, number][];
     };
+    legs?: Array<{
+      steps?: Array<{
+        name?: string;
+        ref?: string;
+      }>;
+    }>;
   }>;
 };
 
@@ -54,6 +60,8 @@ const DEFAULT_CENTER: [number, number] = [52.52, 13.405];
 export default function Home() {
   const [leafletReady, setLeafletReady] = useState(false);
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number>(0);
+  const [countryRoadWarning, setCountryRoadWarning] = useState<string | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const mapRef = useRef<LeafletMap | null>(null);
   const waypointCirclesRef = useRef<LeafletLayer[]>([]);
@@ -168,6 +176,8 @@ export default function Home() {
     if (waypoints.length < 2) {
       routeLineRef.current.setLatLngs?.([]);
       setRouteNotice(null);
+      setRouteDistanceKm(0);
+      setCountryRoadWarning(null);
       return;
     }
 
@@ -177,30 +187,51 @@ export default function Home() {
       const coordinates = waypoints.map((point) => `${point.lng},${point.lat}`).join(";");
 
       try {
-        const response = await fetch(
-          `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&alternatives=true&steps=false`,
-          {
-            signal: controller.signal,
-          },
-        );
-        const data = (await response.json()) as OsrmRouteResponse;
-        const shortestRoute = data.routes?.reduce((shortest, current) =>
-          current.distance < shortest.distance ? current : shortest,
-        );
-        const routePoints = shortestRoute?.geometry.coordinates;
+        const baseUrl = `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&alternatives=false&steps=true`;
+        const responseWithExclude = await fetch(`${baseUrl}&exclude=motorway,motorway_link`, {
+          signal: controller.signal,
+        });
+        const dataWithExclude = (await responseWithExclude.json()) as OsrmRouteResponse;
 
-        if (!response.ok || data.code !== "Ok" || !routePoints) {
+        let data = dataWithExclude;
+        let responseOk = responseWithExclude.ok;
+
+        if (!responseWithExclude.ok || dataWithExclude.code !== "Ok") {
+          const fallbackResponse = await fetch(baseUrl, {
+            signal: controller.signal,
+          });
+          data = (await fallbackResponse.json()) as OsrmRouteResponse;
+          responseOk = fallbackResponse.ok;
+        }
+
+        const route = data.routes?.[0];
+        const routePoints = route?.geometry.coordinates;
+
+        if (!responseOk || data.code !== "Ok" || !routePoints) {
           throw new Error("OSRM route not available");
         }
 
         routeLineRef.current?.setLatLngs?.(routePoints.map(([lng, lat]) => [lat, lng]));
-        setRouteNotice(null);
+        setRouteDistanceKm(route.distance / 1000);
+
+        const routeSteps = route.legs?.flatMap((leg) => leg.steps ?? []) ?? [];
+        const usesCountryRoad = routeSteps.some((step) => {
+          const roadLabel = `${step.ref ?? ""} ${step.name ?? ""}`.toUpperCase();
+          return /\b(B|L)\s?\d+\b/.test(roadLabel);
+        });
+
+        setCountryRoadWarning(
+          usesCountryRoad ? "Warnung: Diese Route enthält Abschnitte über Landstraßen." : null,
+        );
+        setRouteNotice("Fußgängerroute aktiv: Autobahnen werden gemieden.");
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           return;
         }
 
         routeLineRef.current?.setLatLngs?.([]);
+        setRouteDistanceKm(0);
+        setCountryRoadWarning(null);
         setRouteNotice(
           "Fußweg konnte nicht gefunden werden. Es wird keine direkte Linie mehr über Privatgelände gezeichnet.",
         );
@@ -219,6 +250,8 @@ export default function Home() {
   const clearRoute = () => {
     setWaypoints([]);
     setRouteNotice(null);
+    setRouteDistanceKm(0);
+    setCountryRoadWarning(null);
   };
 
   return (
@@ -229,10 +262,15 @@ export default function Home() {
         onLoad={() => setLeafletReady(true)}
       />
 
+      {waypoints.length > 0 ? (
+        <div className={styles.routeBar}>Routenlänge: {routeDistanceKm.toFixed(2)} km</div>
+      ) : null}
+
       <div id="map" className={styles.map} aria-label="Interaktive Karte" />
 
       <div className={styles.overlay}>
         {routeNotice ? <p className={styles.notice}>{routeNotice}</p> : null}
+        {countryRoadWarning ? <p className={styles.warning}>{countryRoadWarning}</p> : null}
         <div className={styles.actions}>
           <button type="button" onClick={undoLast} disabled={waypoints.length === 0}>
             Letzten Punkt entfernen

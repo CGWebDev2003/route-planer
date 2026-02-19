@@ -28,6 +28,7 @@ type OsrmRouteResponse = {
 type LeafletLayer = {
   addTo: (map: LeafletMap) => LeafletLayer;
   setLatLngs?: (coords: [number, number][]) => void;
+  setLatLng?: (coords: [number, number]) => void;
   remove?: () => void;
 };
 
@@ -38,6 +39,7 @@ declare global {
       tileLayer: (url: string, options?: Record<string, unknown>) => LeafletLayer;
       polyline: (coords: [number, number][], options?: Record<string, unknown>) => LeafletLayer;
       marker: (coords: [number, number], options?: Record<string, unknown>) => LeafletLayer;
+      circleMarker: (coords: [number, number], options?: Record<string, unknown>) => LeafletLayer;
       Icon: {
         Default: {
           mergeOptions: (options: Record<string, unknown>) => void;
@@ -54,7 +56,8 @@ export default function Home() {
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const mapRef = useRef<LeafletMap | null>(null);
-  const markersRef = useRef<LeafletLayer[]>([]);
+  const waypointCirclesRef = useRef<LeafletLayer[]>([]);
+  const currentPositionRef = useRef<LeafletLayer | null>(null);
   const routeLineRef = useRef<LeafletLayer | null>(null);
 
   useEffect(() => {
@@ -79,7 +82,19 @@ export default function Home() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          map.setView([position.coords.latitude, position.coords.longitude], 16);
+          const currentCoords: [number, number] = [position.coords.latitude, position.coords.longitude];
+          map.setView(currentCoords, 16);
+
+          currentPositionRef.current?.remove?.();
+          currentPositionRef.current = leaflet
+            .circleMarker(currentCoords, {
+              radius: 10,
+              color: "#7dd3fc",
+              weight: 2,
+              fillColor: "#bae6fd",
+              fillOpacity: 1,
+            })
+            .addTo(map);
         },
         () => {
           setRouteNotice("Standort konnte nicht ermittelt werden. Karte startet in Berlin.");
@@ -119,7 +134,8 @@ export default function Home() {
       map.remove();
       mapRef.current = null;
       routeLineRef.current = null;
-      markersRef.current = [];
+      waypointCirclesRef.current = [];
+      currentPositionRef.current = null;
     };
   }, [leafletReady]);
 
@@ -130,9 +146,17 @@ export default function Home() {
 
     const leaflet = window.L;
 
-    markersRef.current.forEach((marker) => marker.remove?.());
-    markersRef.current = waypoints.map((point) =>
-      leaflet.marker([point.lat, point.lng]).addTo(mapRef.current as LeafletMap),
+    waypointCirclesRef.current.forEach((circle) => circle.remove?.());
+    waypointCirclesRef.current = waypoints.map((point) =>
+      leaflet
+        .circleMarker([point.lat, point.lng], {
+          radius: 8,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+        })
+        .addTo(mapRef.current as LeafletMap),
     );
   }, [waypoints]);
 

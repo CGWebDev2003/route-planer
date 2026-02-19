@@ -18,6 +18,7 @@ type LeafletMap = {
 type OsrmRouteResponse = {
   code: string;
   routes?: Array<{
+    distance: number;
     geometry: {
       coordinates: [number, number][];
     };
@@ -78,7 +79,7 @@ export default function Home() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          map.setView([position.coords.latitude, position.coords.longitude], 13);
+          map.setView([position.coords.latitude, position.coords.longitude], 16);
         },
         () => {
           setRouteNotice("Standort konnte nicht ermittelt werden. Karte startet in Berlin.");
@@ -133,7 +134,6 @@ export default function Home() {
     markersRef.current = waypoints.map((point) =>
       leaflet.marker([point.lat, point.lng]).addTo(mapRef.current as LeafletMap),
     );
-
   }, [waypoints]);
 
   useEffect(() => {
@@ -142,7 +142,8 @@ export default function Home() {
     }
 
     if (waypoints.length < 2) {
-      routeLineRef.current.setLatLngs?.(waypoints.map((point) => [point.lat, point.lng]));
+      routeLineRef.current.setLatLngs?.([]);
+      setRouteNotice(null);
       return;
     }
 
@@ -153,13 +154,16 @@ export default function Home() {
 
       try {
         const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`,
+          `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&alternatives=true&steps=false`,
           {
             signal: controller.signal,
           },
         );
         const data = (await response.json()) as OsrmRouteResponse;
-        const routePoints = data.routes?.[0]?.geometry.coordinates;
+        const shortestRoute = data.routes?.reduce((shortest, current) =>
+          current.distance < shortest.distance ? current : shortest,
+        );
+        const routePoints = shortestRoute?.geometry.coordinates;
 
         if (!response.ok || data.code !== "Ok" || !routePoints) {
           throw new Error("OSRM route not available");
@@ -172,8 +176,10 @@ export default function Home() {
           return;
         }
 
-        routeLineRef.current?.setLatLngs?.(waypoints.map((point) => [point.lat, point.lng]));
-        setRouteNotice("Straßenroute konnte nicht geladen werden. Es wird eine direkte Linie angezeigt.");
+        routeLineRef.current?.setLatLngs?.([]);
+        setRouteNotice(
+          "Fußweg konnte nicht gefunden werden. Es wird keine direkte Linie mehr über Privatgelände gezeichnet.",
+        );
       }
     };
 
@@ -188,6 +194,7 @@ export default function Home() {
 
   const clearRoute = () => {
     setWaypoints([]);
+    setRouteNotice(null);
   };
 
   return (
@@ -197,41 +204,20 @@ export default function Home() {
         strategy="afterInteractive"
         onLoad={() => setLeafletReady(true)}
       />
-      <main className={styles.main}>
-        <header className={styles.header}>
-          <h1>Routenplaner</h1>
-          <p>Klicke auf die Karte, um Wegpunkte zu setzen und eine Route zu zeichnen.</p>
-        </header>
 
-        <div className={styles.layout}>
-          <div id="map" className={styles.map} aria-label="Interaktive Karte" />
+      <div id="map" className={styles.map} aria-label="Interaktive Karte" />
 
-          <aside className={styles.sidebar}>
-            <h2>Wegpunkte ({waypoints.length})</h2>
-            {routeNotice ? <p>{routeNotice}</p> : null}
-            <div className={styles.actions}>
-              <button type="button" onClick={undoLast} disabled={waypoints.length === 0}>
-                Letzten Punkt entfernen
-              </button>
-              <button type="button" onClick={clearRoute} disabled={waypoints.length === 0}>
-                Route löschen
-              </button>
-            </div>
-
-            <ol className={styles.list}>
-              {waypoints.length === 0 ? (
-                <li>Noch keine Punkte gesetzt.</li>
-              ) : (
-                waypoints.map((point, index) => (
-                  <li key={`${point.lat}-${point.lng}-${index}`}>
-                    #{index + 1}: {point.lat}, {point.lng}
-                  </li>
-                ))
-              )}
-            </ol>
-          </aside>
+      <div className={styles.overlay}>
+        {routeNotice ? <p className={styles.notice}>{routeNotice}</p> : null}
+        <div className={styles.actions}>
+          <button type="button" onClick={undoLast} disabled={waypoints.length === 0}>
+            Letzten Punkt entfernen
+          </button>
+          <button type="button" onClick={clearRoute} disabled={waypoints.length === 0}>
+            Route löschen
+          </button>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

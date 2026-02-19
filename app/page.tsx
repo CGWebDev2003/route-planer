@@ -187,17 +187,27 @@ export default function Home() {
       const coordinates = waypoints.map((point) => `${point.lng},${point.lat}`).join(";");
 
       try {
-        const response = await fetch(
-          `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&alternatives=false&steps=true&exclude=motorway,motorway_link`,
-          {
+        const baseUrl = `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&alternatives=false&steps=true`;
+        const responseWithExclude = await fetch(`${baseUrl}&exclude=motorway,motorway_link`, {
+          signal: controller.signal,
+        });
+        const dataWithExclude = (await responseWithExclude.json()) as OsrmRouteResponse;
+
+        let data = dataWithExclude;
+        let responseOk = responseWithExclude.ok;
+
+        if (!responseWithExclude.ok || dataWithExclude.code !== "Ok") {
+          const fallbackResponse = await fetch(baseUrl, {
             signal: controller.signal,
-          },
-        );
-        const data = (await response.json()) as OsrmRouteResponse;
+          });
+          data = (await fallbackResponse.json()) as OsrmRouteResponse;
+          responseOk = fallbackResponse.ok;
+        }
+
         const route = data.routes?.[0];
         const routePoints = route?.geometry.coordinates;
 
-        if (!response.ok || data.code !== "Ok" || !routePoints) {
+        if (!responseOk || data.code !== "Ok" || !routePoints) {
           throw new Error("OSRM route not available");
         }
 

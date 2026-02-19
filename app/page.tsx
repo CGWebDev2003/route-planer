@@ -15,6 +15,15 @@ type LeafletMap = {
   setView: (coords: [number, number], zoom: number) => void;
 };
 
+type OsrmRouteResponse = {
+  code: string;
+  routes?: Array<{
+    geometry: {
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
 type LeafletLayer = {
   addTo: (map: LeafletMap) => LeafletLayer;
   setLatLngs?: (coords: [number, number][]) => void;
@@ -41,6 +50,7 @@ const DEFAULT_CENTER: [number, number] = [52.52, 13.405];
 
 export default function Home() {
   const [leafletReady, setLeafletReady] = useState(false);
+  const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const mapRef = useRef<LeafletMap | null>(null);
   const markersRef = useRef<LeafletLayer[]>([]);
@@ -64,6 +74,21 @@ export default function Home() {
     });
 
     map.setView(DEFAULT_CENTER, 13);
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          map.setView([position.coords.latitude, position.coords.longitude], 13);
+        },
+        () => {
+          setRouteNotice("Standort konnte nicht ermittelt werden. Karte startet in Berlin.");
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+        },
+      );
+    }
 
     leaflet
       .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -98,7 +123,7 @@ export default function Home() {
   }, [leafletReady]);
 
   useEffect(() => {
-    if (!window.L || !mapRef.current || !routeLineRef.current) {
+    if (!window.L || !mapRef.current) {
       return;
     }
 
@@ -109,7 +134,52 @@ export default function Home() {
       leaflet.marker([point.lat, point.lng]).addTo(mapRef.current as LeafletMap),
     );
 
-    routeLineRef.current.setLatLngs?.(waypoints.map((point) => [point.lat, point.lng]));
+  }, [waypoints]);
+
+  useEffect(() => {
+    if (!routeLineRef.current) {
+      return;
+    }
+
+    if (waypoints.length < 2) {
+      routeLineRef.current.setLatLngs?.(waypoints.map((point) => [point.lat, point.lng]));
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadRoute = async () => {
+      const coordinates = waypoints.map((point) => `${point.lng},${point.lat}`).join(";");
+
+      try {
+        const response = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`,
+          {
+            signal: controller.signal,
+          },
+        );
+        const data = (await response.json()) as OsrmRouteResponse;
+        const routePoints = data.routes?.[0]?.geometry.coordinates;
+
+        if (!response.ok || data.code !== "Ok" || !routePoints) {
+          throw new Error("OSRM route not available");
+        }
+
+        routeLineRef.current?.setLatLngs?.(routePoints.map(([lng, lat]) => [lat, lng]));
+        setRouteNotice(null);
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+
+        routeLineRef.current?.setLatLngs?.(waypoints.map((point) => [point.lat, point.lng]));
+        setRouteNotice("Straßenroute konnte nicht geladen werden. Es wird eine direkte Linie angezeigt.");
+      }
+    };
+
+    void loadRoute();
+
+    return () => controller.abort();
   }, [waypoints]);
 
   const undoLast = () => {
@@ -138,6 +208,7 @@ export default function Home() {
 
           <aside className={styles.sidebar}>
             <h2>Wegpunkte ({waypoints.length})</h2>
+            {routeNotice ? <p>{routeNotice}</p> : null}
             <div className={styles.actions}>
               <button type="button" onClick={undoLast} disabled={waypoints.length === 0}>
                 Letzten Punkt entfernen

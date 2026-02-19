@@ -47,6 +47,17 @@
   font-size: 0.9rem;
 }
 
+
+.warning {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 251, 235, 0.96);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
 .actions {
   display: flex;
   gap: 8px;
